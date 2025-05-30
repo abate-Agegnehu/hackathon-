@@ -40,8 +40,10 @@ async function main() {
   ];
 
   for (const badge of badges) {
-    await prisma.badge.create({
-      data: badge,
+    await prisma.badge.upsert({
+      where: { name: badge.name },
+      update: badge,
+      create: badge,
     });
   }
 
@@ -64,12 +66,17 @@ async function main() {
   ];
 
   for (const skill of skills) {
-    await prisma.skill.create({
-      data: skill,
+    await prisma.skill.upsert({
+      where: { name: skill.name },
+      update: skill,
+      create: skill,
     });
   }
 
   console.log('Created skills');
+
+  // Delete existing challenges
+  await prisma.challenge.deleteMany();
 
   // Create initial challenges
   const challenges = [
@@ -110,8 +117,15 @@ async function main() {
   });
 
   if (quickStarterBadge) {
-    await prisma.userBadge.create({
-      data: {
+    await prisma.userBadge.upsert({
+      where: {
+        userId_badgeId: {
+          userId: demoUser.id,
+          badgeId: quickStarterBadge.id,
+        },
+      },
+      update: {},
+      create: {
         userId: demoUser.id,
         badgeId: quickStarterBadge.id,
       },
@@ -123,8 +137,18 @@ async function main() {
   });
 
   if (problemSolvingSkill) {
-    await prisma.userSkill.create({
-      data: {
+    await prisma.userSkill.upsert({
+      where: {
+        userId_skillId: {
+          userId: demoUser.id,
+          skillId: problemSolvingSkill.id,
+        },
+      },
+      update: {
+        level: 2,
+        progress: 65,
+      },
+      create: {
         userId: demoUser.id,
         skillId: problemSolvingSkill.id,
         level: 2,
@@ -174,10 +198,10 @@ async function main() {
   // Create subscription plans
   const plans = [
     {
-      name: 'Basic',
-      description: 'Perfect for getting started',
-      priceMonthly: 9.99,
-      priceYearly: 99.99,
+      name: 'Free',
+      description: 'Basic access to the platform',
+      priceMonthly: 0,
+      priceYearly: 0,
       maxSessionsPerWeek: 2,
       canCreatePrivateTeams: false,
       hasPriorityBooking: false,
@@ -185,10 +209,20 @@ async function main() {
     },
     {
       name: 'Pro',
-      description: 'For serious learners',
-      priceMonthly: 19.99,
-      priceYearly: 199.99,
-      maxSessionsPerWeek: 5,
+      description: 'Professional features including premium team creation',
+      priceMonthly: 999,
+      priceYearly: 9990,
+      maxSessionsPerWeek: 10,
+      canCreatePrivateTeams: true,
+      hasPriorityBooking: true,
+      hasAdvancedAnalytics: false,
+    },
+    {
+      name: 'Enterprise',
+      description: 'Full platform access with advanced features',
+      priceMonthly: 2999,
+      priceYearly: 29990,
+      maxSessionsPerWeek: -1, // Unlimited
       canCreatePrivateTeams: true,
       hasPriorityBooking: true,
       hasAdvancedAnalytics: true,
@@ -196,8 +230,27 @@ async function main() {
   ];
 
   for (const plan of plans) {
-    await prisma.subscriptionPlan.create({
-      data: plan,
+    await prisma.subscriptionPlan.upsert({
+      where: { name: plan.name },
+      update: plan,
+      create: plan,
+    });
+  }
+
+  // Create a Pro subscription for the demo user
+  const proPlan = await prisma.subscriptionPlan.findFirst({
+    where: { name: 'Pro' }
+  });
+
+  if (proPlan) {
+    await prisma.userSubscription.create({
+      data: {
+        userId: demoUser.id,
+        planId: proPlan.id,
+        billingCycle: 'MONTHLY',
+        startDate: new Date(),
+        isActive: true,
+      }
     });
   }
 

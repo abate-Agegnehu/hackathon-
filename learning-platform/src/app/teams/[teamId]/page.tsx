@@ -12,6 +12,12 @@ interface PageProps {
 }
 
 export default async function TeamPage({ params }: PageProps) {
+  // Get and validate params first
+  const teamId = await params.teamId;
+  if (!teamId) {
+    redirect('/teams');
+  }
+
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     redirect('/auth/signin');
@@ -28,7 +34,7 @@ export default async function TeamPage({ params }: PageProps) {
   // Check if user is a member of the team
   const teamMember = await prisma.teamMember.findFirst({
     where: {
-      teamId: params.teamId,
+      teamId: teamId,
       userId: user.id
     }
   });
@@ -39,7 +45,7 @@ export default async function TeamPage({ params }: PageProps) {
 
   // Get team details
   const team = await prisma.team.findUnique({
-    where: { id: params.teamId },
+    where: { id: teamId },
     include: {
       members: {
         include: {
@@ -97,7 +103,7 @@ export default async function TeamPage({ params }: PageProps) {
 
         {/* Team Chat Section */}
         <Grid item xs={12} md={8}>
-          <TeamChat teamId={params.teamId} />
+          <TeamChat teamId={teamId} />
         </Grid>
       </Grid>
     </Container>

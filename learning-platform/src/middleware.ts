@@ -1,27 +1,28 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { getToken } from 'next-auth/jwt';
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { authOptions } from "@/lib/auth-edge"; // ✅ uses only the secret
 
 export async function middleware(request: NextRequest) {
-  const token = await getToken({ req: request });
+  const token = await getToken({ req: request, secret: authOptions.secret });
   const { pathname } = request.nextUrl;
 
   // Public paths that don't require authentication
-  const publicPaths = ['/', '/auth/signin', '/auth/signup', '/api/auth'];
-  
+  const publicPaths = ["/", "/auth/signin", "/auth/signup", "/api/auth"];
+
   // Check if the path is public
-  const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
+  const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
 
   if (!token && !isPublicPath) {
     // Redirect to signin page if trying to access protected route without auth
-    const url = new URL('/auth/signin', request.url);
-    url.searchParams.set('callbackUrl', encodeURI(pathname));
+    const url = new URL("/auth/signin", request.url);
+    url.searchParams.set("callbackUrl", encodeURI(pathname));
     return NextResponse.redirect(url);
   }
 
-  if (token && isPublicPath && pathname.startsWith('/auth/')) {
+  if (token && isPublicPath && pathname.startsWith("/auth/")) {
     // Redirect to dashboard if trying to access auth pages while authenticated
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   return NextResponse.next();
@@ -37,6 +38,6 @@ export const config = {
      * - favicon.ico (favicon file)
      * - public folder
      */
-    '/((?!_next/static|_next/image|favicon.ico|public).*)',
+    "/((?!_next/static|_next/image|favicon.ico|public).*)",
   ],
-}; 
+};

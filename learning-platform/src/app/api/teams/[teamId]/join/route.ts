@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { mpesa } from '@/lib/mpesa';
+import { revalidatePath } from 'next/cache';
 
 export async function POST(
   request: Request,
@@ -9,7 +11,6 @@ export async function POST(
 ) {
   try {
     const session = await getServerSession(authOptions);
-
     if (!session?.user?.email) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -17,9 +18,26 @@ export async function POST(
       );
     }
 
-    // Find user by email
+    const teamId = params.teamId;
+    const body = await request.json();
+    const phoneNumber = body.phoneNumber;
+
+    if (!phoneNumber) {
+      return NextResponse.json(
+        { error: 'Phone number is required' },
+        { status: 400 }
+      );
+    }
+
+    // Get user
     const user = await prisma.user.findUnique({
-      where: { email: session.user.email }
+      where: { email: session.user.email },
+      include: {
+        subscriptions: {
+          where: { isActive: true },
+          include: { plan: true }
+        }
+      }
     });
 
     if (!user) {
@@ -29,18 +47,12 @@ export async function POST(
       );
     }
 
-    const { teamId } = params;
-
-    // Check if team exists
+    // Get team
     const team = await prisma.team.findUnique({
       where: { id: teamId },
       include: {
-        _count: {
-          select: {
-            members: true,
-          },
-        },
-      },
+        members: true
+      }
     });
 
     if (!team) {
@@ -50,38 +62,71 @@ export async function POST(
       );
     }
 
-    // Check if team is full
-    if (team._count.members >= team.maxMembers) {
+    // Check if user is already a member
+    const existingMember = team.members.find(member => member.userId === user.id);
+    if (existingMember) {
+      return NextResponse.json(
+        { error: 'You are already a member of this team' },
+        { status: 400 }
+      );
+    }
+
+    // Check team capacity
+    if (team.members.length >= team.maxMembers) {
       return NextResponse.json(
         { error: 'Team is full' },
         { status: 400 }
       );
     }
 
-    // Check if user is already a member
-    const existingMember = await prisma.teamMember.findFirst({
-      where: {
-        AND: [
-          { userId: user.id },
-          { teamId }
-        ]
-      }
-    });
-
-    if (existingMember) {
-      return NextResponse.json(
-        { error: 'Already a member of this team' },
-        { status: 400 }
+    // If team is premium, check user's subscription
+    if (team.isPremium) {
+      const hasValidSubscription = user.subscriptions.some(sub => 
+        sub.plan.canCreatePrivateTeams && sub.isActive
       );
+
+      if (!hasValidSubscription) {
+        try {
+          // Create a payment record
+          const payment = await prisma.teamPayment.create({
+            data: {
+              teamId,
+              userId: user.id,
+              amount: team.premiumFee,
+              phoneNumber
+            }
+          });
+
+          // Initiate M-PESA payment
+          const mpesaResponse = await mpesa.initiateSTKPush(
+            phoneNumber,
+            Number(team.premiumFee),
+            `Team-${teamId}`,
+            `Premium Team Membership`
+          );
+
+          return NextResponse.json({
+            requiresPayment: true,
+            paymentId: payment.id,
+            checkoutRequestId: mpesaResponse.CheckoutRequestID
+          });
+        } catch (error) {
+          console.error('M-PESA payment initiation failed:', error);
+          return NextResponse.json(
+            { error: 'Payment initiation failed. Please try again.' },
+            { status: 500 }
+          );
+        }
+      }
     }
 
-    // Add user as team member
-    await prisma.teamMember.create({
+    // Add user to team
+    const teamMember = await prisma.teamMember.create({
       data: {
-        userId: user.id,
         teamId,
-        role: 'MEMBER',
-      },
+        userId: user.id,
+        role: 'MEMBER'
+      }
     });
 
     // Check if this is the user's first team
@@ -113,47 +158,47 @@ export async function POST(
         }
       });
 
-      // Create a notification
+      // Create a notification for the badge
       await prisma.notification.create({
         data: {
           userId: user.id,
-          type: 'BADGE_EARNED',
+          notificationType: 'BADGE_EARNED',
           title: 'Badge Earned!',
           message: 'Congratulations! You\'ve earned the Team Player badge for joining your first team!',
         },
       });
     }
 
-    // Get team leader to send notification
-    const teamLeader = await prisma.teamMember.findFirst({
+    // Create notification for team members
+    const teamMembers = await prisma.teamMember.findMany({
       where: {
         teamId,
-        role: 'LEADER',
-      },
-      select: {
-        userId: true,
-      },
+        userId: {
+          not: user.id
+        }
+      }
     });
 
-    if (teamLeader) {
-      // Create notification for team leader
+    for (const member of teamMembers) {
       await prisma.notification.create({
         data: {
-          userId: teamLeader.userId,
-          title: 'New Team Member',
-          message: `${session.user.name || 'A user'} has joined your team "${team.name}"`,
+          userId: member.userId,
           notificationType: 'TEAM_JOIN',
-          relatedEntityType: 'TEAM',
-          relatedEntityId: parseInt(teamId),
+          title: 'New Team Member',
+          message: `${session.user.name || 'A new member'} has joined your team "${team.name}"`,
         },
       });
     }
 
-    return NextResponse.json({ message: 'Successfully joined team' });
+    // Revalidate the teams page to force an update
+    revalidatePath('/teams');
+    revalidatePath(`/teams/${teamId}`);
+
+    return NextResponse.json(teamMember);
   } catch (error) {
-    console.error('Join Team API Error:', error);
+    console.error('Error joining team:', error);
     return NextResponse.json(
-      { error: 'Failed to join team', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to join team. Please try again.' },
       { status: 500 }
     );
   }

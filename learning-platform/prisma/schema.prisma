@@ -26,14 +26,14 @@ model User {
   createdSessions   Session[]          @relation("CreatedSessions")
   badges            UserBadge[]
   skills            UserSkill[]
-  meetingRequests   MeetingRequest[]
+  teamPayments      TeamPayment[]      @relation("UserPayments")
 
   @@map("users")
 }
 
 model Challenge {
   id           Int      @id @default(autoincrement())
-  title        String   @db.VarChar(255)
+  title        String   @unique @db.VarChar(255)
   description  String   @db.Text
   goalTarget   Int      @default(1)
   rewardPoints Int      @default(100)
@@ -64,11 +64,14 @@ model Team {
   description String      @db.Text
   status      String      @default("ACTIVE")
   maxMembers  Int         @default(5)
+  isPremium   Boolean     @default(false)
+  premiumFee  Decimal     @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   members     TeamMember[]
   challenges  TeamChallenge[]
   messages    Message[]   @relation("TeamMessages")
+  payments    TeamPayment[]
 
   @@map("teams")
 }
@@ -117,7 +120,6 @@ model Session {
   googleEventId     String?            @db.VarChar(255)
   participants      SessionParticipant[]
   createdBy         User               @relation("CreatedSessions", fields: [createdById], references: [id], onDelete: Cascade)
-  meetingRequests   MeetingRequest[]
 
   @@map("sessions")
 }
@@ -259,16 +261,19 @@ model UserSkill {
   @@map("user_skills")
 }
 
-model MeetingRequest {
-  id        Int      @id @default(autoincrement())
-  sessionId Int
-  userId    Int
-  status    String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+model TeamPayment {
+  id            String    @id @default(cuid())
+  teamId        String
+  userId        Int
+  amount        Decimal
+  currency      String    @default("KES")
+  status        String    @default("PENDING") // PENDING, COMPLETED, FAILED
+  mpesaRef     String?   // M-PESA reference number
+  phoneNumber   String    // Customer's phone number
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user          User      @relation("UserPayments", fields: [userId], references: [id])
 
-  @@unique([userId, sessionId])
-  @@map("meeting_requests")
+  @@map("team_payments")
 } 

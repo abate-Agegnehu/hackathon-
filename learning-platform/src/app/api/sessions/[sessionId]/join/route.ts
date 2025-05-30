@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ sessionId: string }> }
+  { params }: { params: { sessionId: string } }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -29,18 +29,9 @@ export async function POST(
       );
     }
 
-    // Get and validate sessionId first
-    const params = await context.params;
-    const sessionId = params.sessionId;
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: 'Session ID is required' },
-        { status: 400 }
-      );
-    }
+    const sessionId = parseInt(params.sessionId);
 
-    const parsedSessionId = parseInt(sessionId);
-    if (isNaN(parsedSessionId)) {
+    if (isNaN(sessionId)) {
       return NextResponse.json(
         { error: 'Invalid session ID' },
         { status: 400 }
@@ -49,20 +40,14 @@ export async function POST(
 
     // Check if session exists and is available
     const learningSession = await prisma.session.findUnique({
-      where: { id: parsedSessionId },
+      where: { id: sessionId },
       include: {
         _count: {
           select: {
-            participants: {
-              where: {
-                status: {
-                  in: ['JOINED', 'IN_PROGRESS']
-                }
-              }
-            }
-          },
-        },
-      },
+            participants: true
+          }
+        }
+      }
     });
 
     if (!learningSession) {
@@ -87,13 +72,12 @@ export async function POST(
     }
 
     // Check if user is already a participant
-    const existingParticipant = await prisma.sessionParticipant.findFirst({
+    const existingParticipant = await prisma.sessionParticipant.findUnique({
       where: {
-        AND: [
-          { userId: user.id },
-          { sessionId: parsedSessionId },
-          { status: { in: ['JOINED', 'IN_PROGRESS'] } }  // Only consider active participants
-        ]
+        userId_sessionId: {
+          userId: user.id,
+          sessionId
+        }
       }
     });
 
@@ -104,30 +88,21 @@ export async function POST(
       );
     }
 
-    // Cleanup any old completed or cancelled participations for this session
-    await prisma.sessionParticipant.deleteMany({
-      where: {
-        AND: [
-          { userId: user.id },
-          { sessionId: parsedSessionId },
-          { status: { in: ['COMPLETED', 'CANCELLED'] } }
-        ]
-      }
-    });
-
     // Add user as participant
     await prisma.sessionParticipant.create({
       data: {
         userId: user.id,
-        sessionId: parsedSessionId,
-      },
+        sessionId,
+        status: 'JOINED',
+        role: 'MEMBER'
+      }
     });
 
     // Create notification for session creator
     await prisma.notification.create({
       data: {
         userId: learningSession.createdById,
-        type: 'SESSION_JOIN',
+        notificationType: 'SESSION_JOIN',
         title: 'New Session Participant',
         message: `${session.user.name || 'A user'} has joined your session "${learningSession.title}"`,
       },

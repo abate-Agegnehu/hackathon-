@@ -2,33 +2,40 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { Team, TeamMember, Challenge } from '@prisma/client';
+import { type Prisma } from '.prisma/client';
 
-interface TeamWithRelations extends Team {
-  members: {
-    user: {
-      id: string;
-      name: string | null;
-      email: string | null;
+type TeamWithRelations = Prisma.TeamGetPayload<{
+  include: {
+    members: {
+      include: {
+        user: {
+          select: {
+            id: true;
+            name: true;
+            email: true;
+          };
+        };
+      };
     };
-    role: 'LEADER' | 'MEMBER';
-  }[];
-  challenges: {
-    status: Challenge['status'];
-  }[];
-}
+    challenges: {
+      select: {
+        status: true;
+      };
+    };
+  };
+}>;
 
 interface TeamResponse {
   id: string;
   name: string;
   description: string;
-  status: Team['status'];
+  status: string;
   maxMembers: number;
   members: {
     id: string;
     name: string | null;
     email: string | null;
-    role: TeamMember['role'];
+    role: string;
   }[];
   activeChallenges: number;
   completedChallenges: number;
@@ -81,20 +88,20 @@ export async function GET() {
       },
     });
 
-    const formattedTeams: TeamResponse[] = teams.map((team: TeamWithRelations) => ({
+    const formattedTeams: TeamResponse[] = teams.map((team: any) => ({
       id: team.id,
       name: team.name,
       description: team.description,
       status: team.status,
       maxMembers: team.maxMembers,
-      members: team.members.map((member) => ({
+      members: team.members.map((member: any) => ({
         id: member.user.id,
         name: member.user.name,
         email: member.user.email,
         role: member.role,
       })),
-      activeChallenges: team.challenges.filter((challenge) => challenge.status === 'ACTIVE').length,
-      completedChallenges: team.challenges.filter((challenge) => challenge.status === 'COMPLETED').length,
+      activeChallenges: team.challenges.filter((challenge: any) => challenge.status === 'ACTIVE').length,
+      completedChallenges: team.challenges.filter((challenge: any) => challenge.status === 'COMPLETED').length,
     }));
 
     return NextResponse.json(formattedTeams);
@@ -119,7 +126,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, description, maxMembers } = body;
+    const { name, description, maxMembers, isPremium, premiumFee } = body;
 
     // Validate required fields
     if (!name || !description) {
@@ -137,6 +144,38 @@ export async function POST(request: Request) {
       );
     }
 
+    // Validate premium settings
+    if (isPremium && (!premiumFee || premiumFee <= 0)) {
+      return NextResponse.json(
+        { error: 'Premium teams must have a valid fee greater than 0' },
+        { status: 400 }
+      );
+    }
+
+    // Check if user has permission to create premium teams
+    if (isPremium) {
+      const user = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        include: {
+          subscriptions: {
+            where: { isActive: true },
+            include: { plan: true }
+          }
+        }
+      });
+
+      const canCreatePremiumTeam = user?.subscriptions.some(
+        sub => sub.plan.canCreatePrivateTeams
+      );
+
+      if (!canCreatePremiumTeam) {
+        return NextResponse.json(
+          { error: 'Your subscription plan does not allow creating premium teams' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Create new team
     const team = await prisma.team.create({
       data: {
@@ -144,6 +183,8 @@ export async function POST(request: Request) {
         description,
         maxMembers,
         status: 'ACTIVE',
+        isPremium: isPremium || false,
+        premiumFee: isPremium ? premiumFee : 0,
         members: {
           create: {
             userId: parseInt(session.user.id),
@@ -181,7 +222,7 @@ export async function POST(request: Request) {
         data: allUsers.map((user: { id: number }) => ({
           userId: user.id,
           title: 'New Team Created',
-          message: `${session.user.name || 'A user'} created a new team: "${name}"`,
+          message: `${session.user.name || 'A user'} created a new ${isPremium ? 'premium' : ''} team: "${name}"`,
           notificationType: 'TEAM_CREATED',
           relatedEntityType: 'TEAM',
           relatedEntityId: parseInt(team.id)
@@ -193,7 +234,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Create Team API Error:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error' },
+      { error: 'Failed to create team' },
       { status: 500 }
     );
   }

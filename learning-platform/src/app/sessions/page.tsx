@@ -442,7 +442,7 @@ export default function SessionsPage() {
                 onChange={(e) =>
                   setNewSession({
                     ...newSession,
-                    difficulty: e.target.value as Session['difficulty'],
+                    difficulty: e.target.value as 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED',
                   })
                 }
                 label="Difficulty"

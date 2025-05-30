@@ -13,6 +13,16 @@ export async function GET() {
       ['your-email@example.com'] // Replace with your email
     );
 
+    if (!result) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Failed to create Google Meet'
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       meetLink: result.meetLink,

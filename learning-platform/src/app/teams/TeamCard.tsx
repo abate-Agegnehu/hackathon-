@@ -13,6 +13,7 @@ import {
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import JoinTeamButton from './JoinTeamButton';
+import LeaveTeamButton from './LeaveTeamButton';
 
 interface TeamMember {
   id: string;
@@ -42,7 +43,10 @@ interface TeamCardProps {
 export default function TeamCard({ team }: TeamCardProps) {
   const { data: session } = useSession();
   const isTeamFull = team.members.length >= team.maxMembers;
-  const isMember = team.members.some(member => member.user.email === session?.user?.email);
+  const currentMember = team.members.find(member => member.user.email === session?.user?.email);
+  const isMember = !!currentMember;
+  const isLeader = currentMember?.role === 'LEADER';
+  const hasOtherMembers = team.members.length > 1;
 
   return (
     <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -107,14 +111,20 @@ export default function TeamCard({ team }: TeamCardProps) {
         </Box>
       </CardContent>
 
-      {!isMember && (
-        <CardActions sx={{ mt: 'auto', p: 2, pt: 0 }}>
+      <CardActions sx={{ mt: 'auto', p: 2, pt: 0 }}>
+        {isMember ? (
+          <LeaveTeamButton
+            teamId={team.id}
+            isLeader={isLeader}
+            hasOtherMembers={hasOtherMembers}
+          />
+        ) : (
           <JoinTeamButton 
             teamId={team.id} 
             disabled={isTeamFull || team.status !== 'ACTIVE'} 
           />
-        </CardActions>
-      )}
+        )}
+      </CardActions>
     </Card>
   );
 } 

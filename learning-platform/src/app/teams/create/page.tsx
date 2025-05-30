@@ -1,50 +1,63 @@
-import { Container, Paper, Typography, TextField, Button, Box } from '@mui/material';
-import { redirect } from 'next/navigation';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+'use client';
 
-export default async function CreateTeamPage() {
-  async function createTeam(formData: FormData) {
-    'use server';
+import { Container, Paper, Typography, TextField, Button, Box, FormControlLabel, Switch, Alert } from '@mui/material';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      throw new Error('Unauthorized');
-    }
+export default function CreateTeamPage() {
+  const router = useRouter();
+  const [isPremium, setIsPremium] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email }
-    });
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
 
-    if (!user) {
-      throw new Error('User not found');
-    }
+    try {
+      const formData = new FormData(event.currentTarget);
+      const data = {
+        name: formData.get('name'),
+        description: formData.get('description'),
+        maxMembers: parseInt(formData.get('maxMembers') as string),
+        isPremium: isPremium,
+        premiumFee: isPremium ? parseFloat(formData.get('premiumFee') as string) : 0
+      };
 
-    const name = formData.get('name') as string;
-    const description = formData.get('description') as string;
-    const maxMembers = parseInt(formData.get('maxMembers') as string);
-
-    if (!name || !description || !maxMembers) {
-      throw new Error('All fields are required');
-    }
-
-    const team = await prisma.team.create({
-      data: {
-        name,
-        description,
-        maxMembers,
-        members: {
-          create: {
-            userId: user.id,
-            role: 'LEADER'
-          }
-        }
+      if (!data.name || !data.description || !data.maxMembers) {
+        throw new Error('All required fields must be filled');
       }
-    });
 
-    redirect('/teams');
-  }
+      if (data.maxMembers < 2 || data.maxMembers > 10) {
+        throw new Error('Team size must be between 2 and 10 members');
+      }
+
+      if (isPremium && (!data.premiumFee || data.premiumFee <= 0)) {
+        throw new Error('Premium teams must have a valid fee greater than 0');
+      }
+
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create team');
+      }
+
+      router.push('/teams');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <Container maxWidth="sm" sx={{ py: 4 }}>
@@ -53,7 +66,13 @@ export default async function CreateTeamPage() {
           Create New Team
         </Typography>
 
-        <form action={createTeam}>
+        {error && (
+          <Alert severity="error" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
+
+        <form onSubmit={handleSubmit}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <TextField
               name="name"
@@ -81,12 +100,38 @@ export default async function CreateTeamPage() {
               defaultValue={5}
             />
 
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={isPremium}
+                  onChange={(e) => setIsPremium(e.target.checked)}
+                />
+              }
+              label="Make this a premium team"
+            />
+
+            {isPremium && (
+              <TextField
+                name="premiumFee"
+                label="Premium Fee (KES)"
+                type="number"
+                required
+                fullWidth
+                inputProps={{ min: 1, step: "0.01" }}
+                helperText="Set the fee that members need to pay to join this team"
+              />
+            )}
+
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
               <Button href="/teams" variant="outlined">
                 Cancel
               </Button>
-              <Button type="submit" variant="contained">
-                Create Team
+              <Button 
+                type="submit" 
+                variant="contained"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Creating...' : 'Create Team'}
               </Button>
             </Box>
           </Box>

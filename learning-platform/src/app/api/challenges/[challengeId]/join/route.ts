@@ -10,14 +10,22 @@ export async function POST(
   try {
     const session = await getServerSession(authOptions);
 
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const { challengeId } = params;
+    const challengeId = parseInt(params.challengeId, 10);
+    const userId = parseInt(session.user.id, 10);
+
+    if (isNaN(challengeId) || isNaN(userId)) {
+      return NextResponse.json(
+        { error: 'Invalid ID' },
+        { status: 400 }
+      );
+    }
 
     // Check if challenge exists and is available
     const challenge = await prisma.challenge.findUnique({
@@ -25,7 +33,7 @@ export async function POST(
       include: {
         _count: {
           select: {
-            participants: true,
+            userChallenges: true,
           },
         },
       },
@@ -38,14 +46,14 @@ export async function POST(
       );
     }
 
-    if (challenge.status !== 'UPCOMING') {
+    if (!challenge.isActive) {
       return NextResponse.json(
         { error: 'Challenge is not available for joining' },
         { status: 400 }
       );
     }
 
-    if (challenge._count.participants >= challenge.maxParticipants) {
+    if (challenge._count.userChallenges >= challenge.goalTarget) {
       return NextResponse.json(
         { error: 'Challenge is full' },
         { status: 400 }
@@ -53,10 +61,10 @@ export async function POST(
     }
 
     // Check if user is already a participant
-    const existingParticipant = await prisma.challengeParticipant.findUnique({
+    const existingParticipant = await prisma.userChallenge.findUnique({
       where: {
         userId_challengeId: {
-          userId: session.user.id,
+          userId,
           challengeId,
         },
       },
@@ -70,21 +78,11 @@ export async function POST(
     }
 
     // Add user as participant
-    await prisma.challengeParticipant.create({
+    await prisma.userChallenge.create({
       data: {
-        userId: session.user.id,
+        userId,
         challengeId,
         progress: 0,
-      },
-    });
-
-    // Create notification for challenge creator
-    await prisma.notification.create({
-      data: {
-        userId: challenge.createdById,
-        type: 'CHALLENGE_JOIN',
-        title: 'New Challenge Participant',
-        message: `${session.user.name} has joined your challenge "${challenge.title}"`,
       },
     });
 

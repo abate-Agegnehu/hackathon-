@@ -122,7 +122,7 @@ export async function POST(
       await prisma.notification.create({
         data: {
           userId: user.id,
-          type: 'BADGE_EARNED',
+          notificationType: 'BADGE_EARNED',
           title: 'Badge Earned!',
           message: 'Congratulations! You\'ve earned the Quick Starter badge for completing your first session!',
         },
@@ -134,7 +134,7 @@ export async function POST(
       await prisma.notification.create({
         data: {
           userId: learningSession.createdById,
-          type: 'SESSION_COMPLETED',
+          notificationType: 'SESSION_COMPLETED',
           title: 'Session Completed',
           message: `${session.user.name || 'A participant'} has completed the session "${learningSession.title}"`,
         },

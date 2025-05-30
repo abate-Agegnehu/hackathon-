@@ -23,8 +23,7 @@ interface Message {
   content: string;
   sentAt: string;
   sender: {
-    id: number;
-    name: string;
+    name: string | null;
     email: string;
   };
 }
@@ -168,7 +167,7 @@ export default function TeamChat({ teamId }: TeamChatProps) {
                   }}
                 >
                   <Avatar sx={{ width: 32, height: 32 }}>
-                    {message.sender.name[0]}
+                    {message.sender.name?.[0]}
                   </Avatar>
                   <Typography variant="caption" color="text.secondary">
                     {message.sender.name} • {new Date(message.sentAt).toLocaleString()}

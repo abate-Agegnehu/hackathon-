@@ -169,9 +169,16 @@ export async function POST(request: Request) {
           }
         });
 
-        // Award the badge to the user
-        await prisma.userBadge.create({
-          data: {
+        // Award the badge to the user using upsert to avoid duplicates
+        await prisma.userBadge.upsert({
+          where: {
+            userId_badgeId: {
+              userId: user.id,
+              badgeId: badge.id
+            }
+          },
+          update: {}, // No updates needed if it exists
+          create: {
             userId: user.id,
             badgeId: badge.id
           }
