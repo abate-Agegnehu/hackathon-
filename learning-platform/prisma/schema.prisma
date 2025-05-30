@@ -262,18 +262,20 @@ model UserSkill {
 }
 
 model TeamPayment {
-  id            String    @id @default(cuid())
-  teamId        String
-  userId        Int
-  amount        Decimal
-  currency      String    @default("KES")
-  status        String    @default("PENDING") // PENDING, COMPLETED, FAILED
-  mpesaRef     String?   // M-PESA reference number
-  phoneNumber   String    // Customer's phone number
-  createdAt     DateTime  @default(now())
-  completedAt   DateTime?
-  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user          User      @relation("UserPayments", fields: [userId], references: [id])
+  id                String    @id @default(cuid())
+  teamId            String
+  userId            Int
+  amount            Decimal
+  currency          String    @default("KES")
+  status            String    @default("PENDING") // PENDING, COMPLETED, FAILED
+  mpesaRef          String?   // M-PESA reference number
+  checkoutRequestId String?   // M-PESA checkout request ID
+  phoneNumber       String    // Customer's phone number
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+  metadata          Json?     // Additional payment metadata
+  team              Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user              User      @relation("UserPayments", fields: [userId], references: [id])
 
   @@map("team_payments")
 } 

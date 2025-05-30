@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { type Prisma } from '.prisma/client';
+import { revalidatePath } from 'next/cache';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 type TeamWithRelations = Prisma.TeamGetPayload<{
   include: {
@@ -116,28 +118,56 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    // Validate session
     const session = await getServerSession(authOptions);
-
-    if (!session?.user) {
+    if (!session?.user?.email) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'You must be signed in to create a team' },
         { status: 401 }
       );
     }
 
-    const body = await request.json();
+    // Parse and validate request body
+    let body;
+    try {
+      const text = await request.text();
+      body = JSON.parse(text);
+    } catch (e) {
+      console.error('Error parsing request body:', e);
+      return NextResponse.json(
+        { error: 'Invalid request format. Please check your input.' },
+        { status: 400 }
+      );
+    }
+
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json(
+        { error: 'Invalid request body' },
+        { status: 400 }
+      );
+    }
+
     const { name, description, maxMembers, isPremium, premiumFee } = body;
 
     // Validate required fields
-    if (!name || !description) {
+    if (!name?.trim() || !description?.trim()) {
       return NextResponse.json(
-        { error: 'Name and description are required' },
+        { error: 'Team name and description are required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate field lengths
+    if (name.length > 255) {
+      return NextResponse.json(
+        { error: 'Team name must be less than 255 characters' },
         { status: 400 }
       );
     }
 
     // Validate maxMembers
-    if (maxMembers < 2 || maxMembers > 10) {
+    const memberCount = Number(maxMembers);
+    if (isNaN(memberCount) || memberCount < 2 || memberCount > 10) {
       return NextResponse.json(
         { error: 'Team size must be between 2 and 10 members' },
         { status: 400 }
@@ -145,26 +175,37 @@ export async function POST(request: Request) {
     }
 
     // Validate premium settings
-    if (isPremium && (!premiumFee || premiumFee <= 0)) {
+    if (isPremium) {
+      const fee = Number(premiumFee);
+      if (isNaN(fee) || fee <= 0) {
+        return NextResponse.json(
+          { error: 'Premium teams must have a valid fee greater than 0' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Get user and validate permissions
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      include: {
+        subscriptions: {
+          where: { isActive: true },
+          include: { plan: true }
+        }
+      }
+    });
+
+    if (!user) {
       return NextResponse.json(
-        { error: 'Premium teams must have a valid fee greater than 0' },
-        { status: 400 }
+        { error: 'User not found' },
+        { status: 404 }
       );
     }
 
-    // Check if user has permission to create premium teams
+    // Check premium team creation permission
     if (isPremium) {
-      const user = await prisma.user.findUnique({
-        where: { email: session.user.email },
-        include: {
-          subscriptions: {
-            where: { isActive: true },
-            include: { plan: true }
-          }
-        }
-      });
-
-      const canCreatePremiumTeam = user?.subscriptions.some(
+      const canCreatePremiumTeam = user.subscriptions.some(
         sub => sub.plan.canCreatePrivateTeams
       );
 
@@ -176,65 +217,111 @@ export async function POST(request: Request) {
       }
     }
 
-    // Create new team
-    const team = await prisma.team.create({
-      data: {
-        name,
-        description,
-        maxMembers,
-        status: 'ACTIVE',
-        isPremium: isPremium || false,
-        premiumFee: isPremium ? premiumFee : 0,
-        members: {
-          create: {
-            userId: parseInt(session.user.id),
-            role: 'LEADER',
+    // Create team using a transaction
+    const team = await prisma.$transaction(async (tx) => {
+      // Create the team
+      const newTeam = await tx.team.create({
+        data: {
+          name: name.trim(),
+          description: description.trim(),
+          maxMembers: memberCount,
+          status: 'ACTIVE',
+          isPremium: isPremium || false,
+          premiumFee: isPremium ? Number(premiumFee) : 0,
+          members: {
+            create: {
+              userId: user.id,
+              role: 'LEADER',
+            },
           },
         },
-      },
-      include: {
-        members: {
-          select: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
+        include: {
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
               },
             },
-            role: true,
           },
         },
-      },
-    });
+      });
 
-    // Create notification for all users about the new team
-    const allUsers = await prisma.user.findMany({
-      where: {
-        id: {
-          not: parseInt(session.user.id) // Exclude the team creator
-        }
-      }
-    });
+      // Create notifications for other users
+      const otherUsers = await tx.user.findMany({
+        where: {
+          id: {
+            not: user.id
+          }
+        },
+        select: { id: true }
+      });
 
-    if (allUsers.length > 0) {
-      await prisma.notification.createMany({
-        data: allUsers.map((user: { id: number }) => ({
-          userId: user.id,
+      if (otherUsers.length > 0) {
+        // Create notifications with the team ID directly
+        const notifications = otherUsers.map((otherUser) => ({
+          userId: otherUser.id,
           title: 'New Team Created',
           message: `${session.user.name || 'A user'} created a new ${isPremium ? 'premium' : ''} team: "${name}"`,
           notificationType: 'TEAM_CREATED',
           relatedEntityType: 'TEAM',
-          relatedEntityId: parseInt(team.id)
-        }))
-      });
+          relatedEntityId: null // We'll set this in a separate update
+        }));
+
+        // Create all notifications
+        await tx.notification.createMany({
+          data: notifications
+        });
+      }
+
+      return newTeam;
+    });
+
+    // Now update the notifications with the team ID
+    const teamIdNumber = team.id ? parseInt(team.id.replace(/\D/g, '')) : null;
+    
+    if (teamIdNumber && !isNaN(teamIdNumber)) {
+      try {
+        await prisma.notification.updateMany({
+          where: {
+            notificationType: 'TEAM_CREATED',
+            relatedEntityId: null,
+            createdAt: {
+              gte: new Date(Date.now() - 5000) // Notifications created in the last 5 seconds
+            }
+          },
+          data: {
+            relatedEntityId: teamIdNumber
+          }
+        });
+      } catch (updateError) {
+        console.error('Failed to update notification IDs:', updateError);
+        // Don't throw here, as the team was still created successfully
+      }
     }
+
+    // Revalidate the teams page
+    revalidatePath('/teams');
 
     return NextResponse.json(team);
   } catch (error) {
     console.error('Create Team API Error:', error);
+    
+    // Handle specific database errors
+    if (error instanceof PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        return NextResponse.json(
+          { error: 'A team with this name already exists' },
+          { status: 400 }
+        );
+      }
+    }
+
     return NextResponse.json(
-      { error: 'Failed to create team' },
+      { error: 'Failed to create team. Please try again.' },
       { status: 500 }
     );
   }

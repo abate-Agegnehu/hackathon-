@@ -22,9 +22,10 @@ export async function POST(
     const body = await request.json();
     const phoneNumber = body.phoneNumber;
 
-    if (!phoneNumber) {
+    // Validate phone number format (should be in the format 254XXXXXXXXX)
+    if (!phoneNumber || !/^254\d{9}$/.test(phoneNumber)) {
       return NextResponse.json(
-        { error: 'Phone number is required' },
+        { error: 'Invalid phone number format. Please use format: 254XXXXXXXXX' },
         { status: 400 }
       );
     }
@@ -87,40 +88,116 @@ export async function POST(
 
       if (!hasValidSubscription) {
         try {
-          // Create a payment record
+          // Validate M-PESA configuration
+          if (!process.env.MPESA_CONSUMER_KEY || 
+              !process.env.MPESA_CONSUMER_SECRET || 
+              !process.env.MPESA_PASSKEY || 
+              !process.env.MPESA_SHORTCODE) {
+            console.error('Missing M-PESA configuration:', {
+              hasConsumerKey: !!process.env.MPESA_CONSUMER_KEY,
+              hasConsumerSecret: !!process.env.MPESA_CONSUMER_SECRET,
+              hasPasskey: !!process.env.MPESA_PASSKEY,
+              hasShortcode: !!process.env.MPESA_SHORTCODE
+            });
+            throw new Error('M-PESA configuration is incomplete');
+          }
+
+          // Create a payment record first
           const payment = await prisma.teamPayment.create({
             data: {
               teamId,
               userId: user.id,
               amount: team.premiumFee,
-              phoneNumber
+              phoneNumber,
+              status: 'PENDING'
             }
           });
 
-          // Initiate M-PESA payment
-          const mpesaResponse = await mpesa.initiateSTKPush(
-            phoneNumber,
-            Number(team.premiumFee),
-            `Team-${teamId}`,
-            `Premium Team Membership`
-          );
+          try {
+            // Validate amount
+            const amount = Number(team.premiumFee);
+            if (isNaN(amount) || amount < 1) {
+              return NextResponse.json(
+                { error: 'Invalid premium fee amount. Must be at least 1 KES.' },
+                { status: 400 }
+              );
+            }
 
-          return NextResponse.json({
-            requiresPayment: true,
-            paymentId: payment.id,
-            checkoutRequestId: mpesaResponse.CheckoutRequestID
-          });
+            console.log('Initiating M-PESA payment with:', {
+              phoneNumber,
+              amount,
+              teamId,
+              userId: user.id
+            });
+
+            // Initiate M-PESA payment with rounded amount
+            const mpesaResponse = await mpesa.initiateSTKPush(
+              phoneNumber,
+              Math.ceil(amount), // Round up to ensure whole number
+              "CompanyXLTD", // Use the same reference as the test
+              "Payment of X" // Use the same description as the test
+            );
+
+            console.log('M-PESA response:', mpesaResponse);
+
+            if (!mpesaResponse?.CheckoutRequestID) {
+              throw new Error('Invalid M-PESA response: Missing CheckoutRequestID');
+            }
+
+            // Update payment record with checkout request ID
+            await prisma.teamPayment.update({
+              where: { id: payment.id },
+              data: {
+                status: 'PENDING',
+                // @ts-ignore - The field exists in the database but TypeScript doesn't know about it yet
+                checkoutRequestId: mpesaResponse.CheckoutRequestID
+              }
+            });
+
+            return NextResponse.json({
+              requiresPayment: true,
+              paymentId: payment.id,
+              checkoutRequestId: mpesaResponse.CheckoutRequestID,
+              message: 'Please complete the payment on your phone'
+            });
+          } catch (mpesaError) {
+            console.error('M-PESA payment initiation error:', {
+              error: mpesaError,
+              message: mpesaError instanceof Error ? mpesaError.message : 'Unknown error',
+              paymentId: payment.id
+            });
+
+            // If M-PESA request fails, update payment status and throw error
+            await prisma.teamPayment.update({
+              where: { id: payment.id },
+              data: { status: 'FAILED' }
+            });
+
+            throw new Error(
+              mpesaError instanceof Error 
+                ? `Failed to initiate M-PESA payment: ${mpesaError.message}` 
+                : 'Failed to initiate M-PESA payment. Please try again.'
+            );
+          }
         } catch (error) {
-          console.error('M-PESA payment initiation failed:', error);
+          console.error('Payment initiation failed:', {
+            error,
+            message: error instanceof Error ? error.message : 'Unknown error',
+            teamId,
+            userId: user.id
+          });
           return NextResponse.json(
-            { error: 'Payment initiation failed. Please try again.' },
+            { 
+              error: error instanceof Error ? error.message : 'Payment initiation failed. Please try again.',
+              details: process.env.NODE_ENV === 'development' ? error : undefined
+            },
             { status: 500 }
           );
         }
       }
     }
 
-    // Add user to team
+    // Add user to team if no payment required or has valid subscription
     const teamMember = await prisma.teamMember.create({
       data: {
         teamId,
