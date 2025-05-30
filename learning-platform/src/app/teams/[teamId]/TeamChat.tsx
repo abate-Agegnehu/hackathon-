@@ -39,6 +39,8 @@ export default function TeamChat({ teamId }: TeamChatProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastFetchRef = useRef<number>(0);
+  const lastMessageCountRef = useRef<number>(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -46,19 +48,27 @@ export default function TeamChat({ teamId }: TeamChatProps) {
 
   const fetchMessages = useCallback(async () => {
     try {
-      console.log('Fetching messages for team:', teamId);
+      // Don't fetch if we've fetched within the last second (debounce)
+      const now = Date.now();
+      if (now - lastFetchRef.current < 1000) {
+        return;
+      }
+      lastFetchRef.current = now;
+
       const response = await fetch(`/api/teams/${teamId}/messages`);
       const data = await response.json();
       
       if (!response.ok) {
-        console.error('Server error:', data);
         throw new Error(data.error || 'Failed to fetch messages');
       }
       
-      console.log(`Fetched ${data.length} messages`);
-      setMessages(data);
-      setLoading(false);
-      setError(''); // Clear any existing errors
+      // Only update state if we have new messages
+      if (data.length !== lastMessageCountRef.current) {
+        lastMessageCountRef.current = data.length;
+        setMessages(data);
+        setLoading(false);
+        setError('');
+      }
     } catch (error) {
       console.error('Error fetching messages:', error);
       setError(error instanceof Error ? error.message : 'Failed to load messages');
@@ -68,8 +78,8 @@ export default function TeamChat({ teamId }: TeamChatProps) {
 
   useEffect(() => {
     fetchMessages();
-    // Set up polling for new messages every 5 seconds
-    const interval = setInterval(fetchMessages, 5000);
+    // Set up polling for new messages every 10 seconds instead of 5
+    const interval = setInterval(fetchMessages, 10000);
     return () => clearInterval(interval);
   }, [fetchMessages]);
 
@@ -82,7 +92,7 @@ export default function TeamChat({ teamId }: TeamChatProps) {
     if (!newMessage.trim()) return;
 
     try {
-      setError(''); // Clear any existing errors
+      setError('');
       const response = await fetch(`/api/teams/${teamId}/messages`, {
         method: 'POST',
         headers: {
@@ -97,12 +107,22 @@ export default function TeamChat({ teamId }: TeamChatProps) {
         throw new Error(data.error || 'Failed to send message');
       }
 
-      setMessages([...messages, data]);
+      // Optimistically update the UI
+      const optimisticMessage = {
+        ...data,
+        sender: {
+          name: session?.user?.name || 'You',
+          email: session?.user?.email || '',
+        }
+      };
+      setMessages(prev => [...prev, optimisticMessage]);
       setNewMessage('');
+      
+      // Fetch latest messages to ensure consistency
+      await fetchMessages();
     } catch (error) {
       console.error('Error sending message:', error);
       setError(error instanceof Error ? error.message : 'Failed to send message');
-      // Don't clear the message input in case of error so user can try again
     }
   };
 
