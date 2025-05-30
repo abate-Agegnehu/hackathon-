@@ -218,27 +218,17 @@ export async function POST(request: Request) {
       }
     }
 
-    // Create notification for all users about the new session
-    const allUsers = await prisma.user.findMany({
-      where: {
-        id: {
-          not: user.id // Exclude the session creator
-        }
+    // Create notification for the session creator
+    await prisma.notification.create({
+      data: {
+        userId: user.id,
+        title: 'Session Created',
+        message: `Your session "${title}" has been created successfully.`,
+        notificationType: 'SESSION_CREATED',
+        relatedEntityType: 'SESSION',
+        relatedEntityId: newSession.id.toString()
       }
     });
-
-    if (allUsers.length > 0) {
-      await prisma.notification.createMany({
-        data: allUsers.map((otherUser: { id: number }) => ({
-          userId: otherUser.id,
-          title: 'New Learning Session',
-          message: `${user.name || 'A user'} created a new session: "${title}" starting at ${new Date(startDateTime).toLocaleString()}`,
-          notificationType: 'SESSION_CREATED',
-          relatedEntityType: 'SESSION',
-          relatedEntityId: newSession.id
-        }))
-      });
-    }
 
     return NextResponse.json(newSession);
   } catch (error) {

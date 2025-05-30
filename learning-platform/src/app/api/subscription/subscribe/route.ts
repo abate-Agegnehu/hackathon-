@@ -163,11 +163,11 @@ export async function POST(request: Request) {
     await prisma.notification.create({
       data: {
         userId: user.id,
-        title: 'Subscription Updated',
-        message: `You have successfully subscribed to the ${plan.name} plan.`,
+        title: 'Subscription Created',
+        message: `Your subscription to ${plan.name} has been created. Please complete the payment.`,
         notificationType: 'SUBSCRIPTION',
         relatedEntityType: 'SUBSCRIPTION',
-        relatedEntityId: subscription.id
+        relatedEntityId: subscription.id.toString()
       }
     });
 

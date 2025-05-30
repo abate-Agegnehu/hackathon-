@@ -100,7 +100,7 @@ export default function SignIn() {
 
             <Box sx={{ textAlign: 'center' }}>
               <Link href="/auth/signup">
-                Don't have an account? Sign up
+                Don&apos;t have an account? Sign up
               </Link>
             </Box>
           </form>

@@ -93,12 +93,12 @@ export async function POST(request: Request) {
         }
       });
 
-      // Create success notification
+      // Create notification for successful payment
       await prisma.notification.create({
         data: {
           userId: payment.userId,
-          title: 'Team Payment Successful',
-          message: `Your payment of ${payment.amount} KES for joining ${payment.team.name} was successful. Transaction ID: ${mpesaRef}`,
+          title: 'Payment Successful',
+          message: `Your payment of ${payment.amount} ${payment.currency} has been received.`,
           notificationType: 'PAYMENT',
           relatedEntityType: 'TEAM',
           relatedEntityId: payment.teamId
@@ -120,12 +120,12 @@ export async function POST(request: Request) {
         }
       });
 
-      // Create failure notification
+      // Create notification for failed payment
       await prisma.notification.create({
         data: {
           userId: payment.userId,
-          title: 'Team Payment Failed',
-          message: `Your payment for joining ${payment.team.name} failed: ${errorMessage}. Please try again.`,
+          title: 'Payment Failed',
+          message: `Your payment of ${payment.amount} ${payment.currency} has failed.`,
           notificationType: 'PAYMENT',
           relatedEntityType: 'TEAM',
           relatedEntityId: payment.teamId

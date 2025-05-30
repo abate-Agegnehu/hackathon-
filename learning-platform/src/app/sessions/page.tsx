@@ -55,7 +55,7 @@ export default function SessionsPage() {
     startTime: '',
     duration: 60,
     maxParticipants: 10,
-    difficulty: 'INTERMEDIATE' as const,
+    difficulty: 'INTERMEDIATE' as Session['difficulty'],
   });
 
   useEffect(() => {

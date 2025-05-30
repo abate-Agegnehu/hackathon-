@@ -119,11 +119,11 @@ export async function POST(
     // Create notifications for all participants
     const notifications = learningSession.participants.map((participant: any) => ({
       userId: participant.userId,
-      title: 'Meeting Created',
-      message: `A meeting has been created for the session "${learningSession.title}". Click to join.`,
-      notificationType: 'MEETING_CREATED',
+      title: 'Meeting Started',
+      message: `The meeting for session "${learningSession.title}" has started. Click to join.`,
+      notificationType: 'MEETING_STARTED',
       relatedEntityType: 'SESSION',
-      relatedEntityId: parsedSessionId,
+      relatedEntityId: parsedSessionId.toString()
     }));
 
     if (notifications.length > 0) {
@@ -132,7 +132,10 @@ export async function POST(
       });
     }
 
-    return NextResponse.json(updatedSession);
+    return NextResponse.json({
+      success: true,
+      meetLink: meetResult.meetLink
+    });
   } catch (error) {
     console.error('Error creating meeting:', error);
     return NextResponse.json(

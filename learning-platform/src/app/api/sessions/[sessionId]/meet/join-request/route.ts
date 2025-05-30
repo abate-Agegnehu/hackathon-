@@ -70,15 +70,15 @@ export async function POST(
       );
     }
 
-    // Create join request notification for session creator
+    // Create notification for session creator
     await prisma.notification.create({
       data: {
         userId: learningSession.createdById,
         title: 'Meeting Join Request',
-        message: `${user.name || 'A participant'} has requested to join the meeting for "${learningSession.title}"`,
+        message: `${user.name} has requested to join the meeting for session "${learningSession.title}"`,
         notificationType: 'MEET_JOIN_REQUEST',
         relatedEntityType: 'SESSION',
-        relatedEntityId: sessionId,
+        relatedEntityId: sessionId.toString()
       }
     });
 
@@ -92,6 +92,7 @@ export async function POST(
     });
 
     return NextResponse.json({
+      success: true,
       message: 'Join request sent successfully'
     });
   } catch (error) {

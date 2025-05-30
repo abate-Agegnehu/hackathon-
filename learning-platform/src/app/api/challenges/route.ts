@@ -192,7 +192,7 @@ export async function POST(request: Request) {
             message: `Congratulations! You've completed the "${challenge.title}" challenge and earned a badge!`,
             notificationType: 'CHALLENGE_COMPLETE',
             relatedEntityType: 'CHALLENGE',
-            relatedEntityId: challenge.id
+            relatedEntityId: challenge.id.toString()
           }
         });
       }

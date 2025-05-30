@@ -93,7 +93,7 @@ export async function POST(request: Request) {
           }
         });
 
-        // Create notification
+        // Create notification for successful payment
         await prisma.notification.create({
           data: {
             userId: user.id,
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
             message: 'Your subscription has been activated after successful payment.',
             notificationType: 'SUBSCRIPTION',
             relatedEntityType: 'SUBSCRIPTION',
-            relatedEntityId: subscription.id
+            relatedEntityId: subscription.id.toString()
           }
         });
 
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
             message: `Subscription payment failed: ${ResultDesc}`,
             notificationType: 'PAYMENT',
             relatedEntityType: 'PAYMENT',
-            relatedEntityId: payment.id
+            relatedEntityId: payment.id.toString()
           }
         });
 

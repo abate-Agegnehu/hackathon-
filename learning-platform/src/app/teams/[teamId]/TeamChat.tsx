@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import {
   Paper,
@@ -71,7 +72,7 @@ export default function TeamChat({ teamId }: TeamChatProps) {
     // Set up polling for new messages every 5 seconds
     const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
-  }, [teamId]);
+  }, [teamId, fetchMessages]);
 
   useEffect(() => {
     scrollToBottom();

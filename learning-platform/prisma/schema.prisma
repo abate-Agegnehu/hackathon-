@@ -21,6 +21,7 @@ model User {
   subscriptions     UserSubscription[]
   subscriptionPayments SubscriptionPayment[]
   sessionParticipants SessionParticipant[]
+  meetingRequests   MeetingRequest[]
   activityLogs      UserActivityLog[]
   userChallenges    UserChallenge[]
   teamMembers       TeamMember[]
@@ -120,6 +121,7 @@ model Session {
   meetLink          String?            @db.Text
   googleEventId     String?            @db.VarChar(255)
   participants      SessionParticipant[]
+  meetingRequests   MeetingRequest[]
   createdBy         User               @relation("CreatedSessions", fields: [createdById], references: [id], onDelete: Cascade)
 
   @@map("sessions")
@@ -160,7 +162,7 @@ model Notification {
   message           String   @db.Text
   notificationType  String
   relatedEntityType String?
-  relatedEntityId   Int?
+  relatedEntityId   String?  // Changed from Int? to String? to handle CUID IDs
   isRead            Boolean  @default(false)
   createdAt         DateTime @default(now())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -298,4 +300,18 @@ model SubscriptionPayment {
   plan               SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@map("subscription_payments")
+}
+
+model MeetingRequest {
+  id          Int      @id @default(autoincrement())
+  sessionId   Int
+  userId      Int
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId])
+  @@map("meeting_requests")
 } 

@@ -151,22 +151,22 @@ export async function POST(
     });
 
     // Create notifications for all participants
-    const notifications = learningSession.participants.map((participant: any) => ({
-      userId: participant.userId,
-      title: 'Session Started',
-      message: `The session "${learningSession.title}" has started.${meetLink ? ' Click to join the meeting.' : ''}`,
-      notificationType: 'SESSION_STARTED',
-      relatedEntityType: 'SESSION',
-      relatedEntityId: parsedSessionId,
-    }));
+    await prisma.notification.createMany({
+      data: learningSession.participants.map((participant) => ({
+        userId: participant.userId,
+        title: 'Session Started',
+        message: `The session "${learningSession.title}" has started.${meetLink ? ' Click to join the meeting.' : ''}`,
+        notificationType: 'SESSION_STARTED',
+        relatedEntityType: 'SESSION',
+        relatedEntityId: parsedSessionId.toString()
+      }))
+    });
 
-    if (notifications.length > 0) {
-      await prisma.notification.createMany({
-        data: notifications,
-      });
-    }
-
-    return NextResponse.json(updatedSession);
+    return NextResponse.json({
+      success: true,
+      message: 'Session started successfully',
+      meetLink: updatedSession.meetLink
+    });
   } catch (error) {
     console.error('Error starting session:', error);
     return NextResponse.json(

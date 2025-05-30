@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -37,11 +37,7 @@ export default function SessionDetailsPage({ params }: { params: { sessionId: st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSessionDetails();
-  }, [params.sessionId]);
-
-  const fetchSessionDetails = async () => {
+  const fetchSessionDetails = useCallback(async () => {
     try {
       const response = await fetch(`/api/sessions/${params.sessionId}`);
       if (!response.ok) {
@@ -56,7 +52,11 @@ export default function SessionDetailsPage({ params }: { params: { sessionId: st
     } finally {
       setLoading(false);
     }
-  };
+  }, [params.sessionId]);
+
+  useEffect(() => {
+    fetchSessionDetails();
+  }, [fetchSessionDetails]);
 
   const handleStartSession = async () => {
     try {
