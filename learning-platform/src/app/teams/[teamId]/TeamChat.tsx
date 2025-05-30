@@ -1,7 +1,6 @@
 'use client';
 
-import React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Paper,
   Typography,
@@ -45,9 +44,9 @@ export default function TeamChat({ teamId }: TeamChatProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchMessages = async () => {
+  const fetchMessages = useCallback(async () => {
     try {
-      console.log('Fetching messages...');
+      console.log('Fetching messages for team:', teamId);
       const response = await fetch(`/api/teams/${teamId}/messages`);
       const data = await response.json();
       
@@ -65,14 +64,14 @@ export default function TeamChat({ teamId }: TeamChatProps) {
       setError(error instanceof Error ? error.message : 'Failed to load messages');
       setLoading(false);
     }
-  };
+  }, [teamId]);
 
   useEffect(() => {
     fetchMessages();
     // Set up polling for new messages every 5 seconds
     const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
-  }, [teamId, fetchMessages]);
+  }, [fetchMessages]);
 
   useEffect(() => {
     scrollToBottom();
