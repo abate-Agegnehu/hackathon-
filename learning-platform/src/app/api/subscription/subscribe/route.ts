@@ -27,19 +27,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const { planId, paymentMethod, phoneNumber } = body;
+    const { planId, phoneNumber } = body;
     console.log('Plan ID:', planId);
 
     if (!planId) {
       return NextResponse.json(
         { error: 'Plan ID is required' },
-        { status: 400 }
-      );
-    }
-
-    if (!phoneNumber) {
-      return NextResponse.json(
-        { error: 'Phone number is required for payment' },
         { status: 400 }
       );
     }
@@ -77,17 +70,39 @@ export async function POST(request: Request) {
     }
 
     // Skip payment for free (Basic) plan
-    if (plan.priceMonthly > 0) {
-      // Create a payment record
-      const payment = await prisma.subscriptionPayment.create({
+    if (Number(plan.priceMonthly) > 0) {
+      if (!phoneNumber) {
+        return NextResponse.json(
+          { error: 'Phone number is required for paid plans' },
+          { status: 400 }
+        );
+      }
+
+      // Create a temporary team for payment processing
+      const tempTeam = await prisma.team.create({
         data: {
+          name: `Subscription_${plan.name}_${Date.now()}`,
+          description: `Subscription payment for ${plan.name} plan`,
+          maxMembers: 2,
+          isPremium: false,
+          members: {
+            create: {
+              userId: user.id,
+              role: 'OWNER'
+            }
+          }
+        }
+      });
+
+      // Create payment record using TeamPayment
+      const payment = await prisma.teamPayment.create({
+        data: {
+          teamId: tempTeam.id,
           userId: user.id,
-          planId: plan.id,
           amount: plan.priceMonthly,
           currency: 'KES',
           status: 'PENDING',
-          phoneNumber: phoneNumber,
-          paymentMethod: paymentMethod || 'MPESA'
+          phoneNumber: phoneNumber
         }
       });
 
@@ -99,7 +114,9 @@ export async function POST(request: Request) {
           id: payment.id,
           amount: payment.amount,
           currency: payment.currency,
-          status: payment.status
+          status: payment.status,
+          teamId: tempTeam.id,
+          planId: plan.id
         },
         message: 'Please complete the payment to activate your subscription'
       });
