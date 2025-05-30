@@ -2,7 +2,7 @@
 
 import { Container, Paper, Typography, TextField, Button, Box, FormControlLabel, Switch, Alert } from '@mui/material';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 
 interface FormData {
@@ -13,12 +13,43 @@ interface FormData {
   premiumFee?: number;
 }
 
+interface UserSubscription {
+  isActive: boolean;
+  plan: {
+    canCreatePrivateTeams: boolean;
+  };
+}
+
 export default function CreateTeamPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [isPremium, setIsPremium] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userSubscription, setUserSubscription] = useState<UserSubscription | null>(null);
+  const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
+
+  useEffect(() => {
+    const fetchUserSubscription = async () => {
+      try {
+        const response = await fetch('/api/users/subscription');
+        if (response.ok) {
+          const data = await response.json();
+          setUserSubscription(data);
+        } else {
+          console.error('Failed to fetch subscription status');
+        }
+      } catch (error) {
+        console.error('Error fetching subscription:', error);
+      } finally {
+        setIsLoadingSubscription(false);
+      }
+    };
+
+    if (session?.user) {
+      fetchUserSubscription();
+    }
+  }, [session]);
 
   // Redirect if not authenticated
   if (status === 'unauthenticated') {
@@ -35,6 +66,11 @@ export default function CreateTeamPage() {
       // Check if user is authenticated
       if (!session?.user) {
         throw new Error('You must be signed in to create a team');
+      }
+
+      // Check subscription for premium team creation
+      if (isPremium && (!userSubscription?.isActive || !userSubscription?.plan?.canCreatePrivateTeams)) {
+        throw new Error('Your subscription plan does not allow creating premium teams');
       }
 
       const formData = new FormData(event.currentTarget);
@@ -80,11 +116,13 @@ export default function CreateTeamPage() {
         body: JSON.stringify(data),
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const result = await response.json();
         throw new Error(result.error || 'Failed to create team');
       }
 
+      // If we get here, the team was created successfully
       router.push('/teams');
       router.refresh();
     } catch (err) {
@@ -95,7 +133,7 @@ export default function CreateTeamPage() {
     }
   };
 
-  if (status === 'loading') {
+  if (status === 'loading' || isLoadingSubscription) {
     return (
       <Container maxWidth="sm" sx={{ py: 4 }}>
         <Paper sx={{ p: 4, textAlign: 'center' }}>
@@ -104,6 +142,8 @@ export default function CreateTeamPage() {
       </Container>
     );
   }
+
+  const canCreatePremiumTeam = userSubscription?.isActive && userSubscription?.plan?.canCreatePrivateTeams;
 
   return (
     <Container maxWidth="sm" sx={{ py: 4 }}>
@@ -115,6 +155,20 @@ export default function CreateTeamPage() {
         {error && (
           <Alert severity="error" sx={{ mb: 3 }}>
             {error}
+          </Alert>
+        )}
+
+        {!canCreatePremiumTeam && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            Premium team creation requires an active subscription with premium team privileges. 
+            <Button 
+              color="primary" 
+              size="small" 
+              sx={{ ml: 1 }}
+              onClick={() => router.push('/subscription')}
+            >
+              Upgrade Plan
+            </Button>
           </Alert>
         )}
 
@@ -156,9 +210,23 @@ export default function CreateTeamPage() {
                 <Switch
                   checked={isPremium}
                   onChange={(e) => setIsPremium(e.target.checked)}
+                  disabled={!canCreatePremiumTeam}
                 />
               }
-              label="Make this a premium team"
+              label={
+                <Box component="span" sx={{ display: 'flex', alignItems: 'center' }}>
+                  Make this a premium team
+                  {!canCreatePremiumTeam && (
+                    <Typography 
+                      variant="caption" 
+                      color="text.secondary"
+                      sx={{ ml: 1 }}
+                    >
+                      (Requires premium subscription)
+                    </Typography>
+                  )}
+                </Box>
+              }
             />
 
             {isPremium && (

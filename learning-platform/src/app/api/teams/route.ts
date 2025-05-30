@@ -131,6 +131,7 @@ export async function POST(request: Request) {
     let body;
     try {
       const text = await request.text();
+      console.log('Request body:', text); // Log raw request body
       body = JSON.parse(text);
     } catch (e) {
       console.error('Error parsing request body:', e);
@@ -141,6 +142,7 @@ export async function POST(request: Request) {
     }
 
     if (!body || typeof body !== 'object') {
+      console.error('Invalid request body format:', body);
       return NextResponse.json(
         { error: 'Invalid request body' },
         { status: 400 }
@@ -148,9 +150,11 @@ export async function POST(request: Request) {
     }
 
     const { name, description, maxMembers, isPremium, premiumFee } = body;
+    console.log('Parsed request data:', { name, description, maxMembers, isPremium, premiumFee });
 
     // Validate required fields
     if (!name?.trim() || !description?.trim()) {
+      console.error('Missing required fields:', { name, description });
       return NextResponse.json(
         { error: 'Team name and description are required' },
         { status: 400 }
@@ -168,6 +172,7 @@ export async function POST(request: Request) {
     // Validate maxMembers
     const memberCount = Number(maxMembers);
     if (isNaN(memberCount) || memberCount < 2 || memberCount > 10) {
+      console.error('Invalid member count:', maxMembers);
       return NextResponse.json(
         { error: 'Team size must be between 2 and 10 members' },
         { status: 400 }
@@ -178,6 +183,7 @@ export async function POST(request: Request) {
     if (isPremium) {
       const fee = Number(premiumFee);
       if (isNaN(fee) || fee <= 0) {
+        console.error('Invalid premium fee:', premiumFee);
         return NextResponse.json(
           { error: 'Premium teams must have a valid fee greater than 0' },
           { status: 400 }
@@ -197,19 +203,26 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
+      console.error('User not found:', session.user.email);
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
       );
     }
 
-    // Check premium team creation permission
+    console.log('User subscriptions:', user.subscriptions);
+
+    // Check subscription for premium team creation
     if (isPremium) {
-      const canCreatePremiumTeam = user.subscriptions.some(
-        sub => sub.plan.canCreatePrivateTeams
+      const hasValidSubscription = user.subscriptions.some(sub => 
+        sub.isActive && sub.plan.canCreatePrivateTeams
       );
 
-      if (!canCreatePremiumTeam) {
+      if (!hasValidSubscription) {
+        console.error('User lacks premium team creation permission:', {
+          userId: user.id,
+          subscriptions: user.subscriptions
+        });
         return NextResponse.json(
           { error: 'Your subscription plan does not allow creating premium teams' },
           { status: 403 }
@@ -217,111 +230,54 @@ export async function POST(request: Request) {
       }
     }
 
-    // Create team using a transaction
-    const team = await prisma.$transaction(async (tx) => {
+    try {
       // Create the team
-      const newTeam = await tx.team.create({
+      const team = await prisma.team.create({
         data: {
           name: name.trim(),
           description: description.trim(),
           maxMembers: memberCount,
-          status: 'ACTIVE',
-          isPremium: isPremium || false,
+          isPremium,
           premiumFee: isPremium ? Number(premiumFee) : 0,
           members: {
             create: {
               userId: user.id,
-              role: 'LEADER',
-            },
-          },
-        },
-        include: {
-          members: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      // Create notifications for other users
-      const otherUsers = await tx.user.findMany({
-        where: {
-          id: {
-            not: user.id
-          }
-        },
-        select: { id: true }
-      });
-
-      if (otherUsers.length > 0) {
-        // Create notifications with the team ID directly
-        const notifications = otherUsers.map((otherUser) => ({
-          userId: otherUser.id,
-          title: 'New Team Created',
-          message: `${session.user.name || 'A user'} created a new ${isPremium ? 'premium' : ''} team: "${name}"`,
-          notificationType: 'TEAM_CREATED',
-          relatedEntityType: 'TEAM',
-          relatedEntityId: null // We'll set this in a separate update
-        }));
-
-        // Create all notifications
-        await tx.notification.createMany({
-          data: notifications
-        });
-      }
-
-      return newTeam;
-    });
-
-    // Now update the notifications with the team ID
-    const teamIdNumber = team.id ? parseInt(team.id.replace(/\D/g, '')) : null;
-    
-    if (teamIdNumber && !isNaN(teamIdNumber)) {
-      try {
-        await prisma.notification.updateMany({
-          where: {
-            notificationType: 'TEAM_CREATED',
-            relatedEntityId: null,
-            createdAt: {
-              gte: new Date(Date.now() - 5000) // Notifications created in the last 5 seconds
+              role: 'OWNER'
             }
-          },
-          data: {
-            relatedEntityId: teamIdNumber
           }
-        });
-      } catch (updateError) {
-        console.error('Failed to update notification IDs:', updateError);
-        // Don't throw here, as the team was still created successfully
+        }
+      });
+
+      console.log('Created team:', team);
+
+      // Note: Skipping activity log creation since team IDs are strings
+      // and the activity log schema expects integer IDs
+
+      // Revalidate teams page
+      revalidatePath('/teams');
+
+      return NextResponse.json(team);
+    } catch (error) {
+      console.error('Error creating team:', error);
+
+      if (error instanceof PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          return NextResponse.json(
+            { error: 'A team with this name already exists' },
+            { status: 400 }
+          );
+        }
       }
+
+      return NextResponse.json(
+        { error: 'Failed to create team' },
+        { status: 500 }
+      );
     }
-
-    // Revalidate the teams page
-    revalidatePath('/teams');
-
-    return NextResponse.json(team);
   } catch (error) {
-    console.error('Create Team API Error:', error);
-    
-    // Handle specific database errors
-    if (error instanceof PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return NextResponse.json(
-          { error: 'A team with this name already exists' },
-          { status: 400 }
-        );
-      }
-    }
-
+    console.error('Error in team creation endpoint:', error);
     return NextResponse.json(
-      { error: 'Failed to create team. Please try again.' },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

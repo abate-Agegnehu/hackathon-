@@ -195,11 +195,11 @@ async function main() {
 
   console.log('Created teams');
 
-  // Create subscription plans
+  // Create default subscription plans
   const plans = [
     {
-      name: 'Free',
-      description: 'Basic access to the platform',
+      name: 'Basic',
+      description: 'Perfect for getting started',
       priceMonthly: 0,
       priceYearly: 0,
       maxSessionsPerWeek: 2,
@@ -209,20 +209,20 @@ async function main() {
     },
     {
       name: 'Pro',
-      description: 'Professional features including premium team creation',
+      description: 'Great for active learners',
       priceMonthly: 999,
       priceYearly: 9990,
-      maxSessionsPerWeek: 10,
+      maxSessionsPerWeek: 5,
       canCreatePrivateTeams: true,
-      hasPriorityBooking: true,
+      hasPriorityBooking: false,
       hasAdvancedAnalytics: false,
     },
     {
       name: 'Enterprise',
-      description: 'Full platform access with advanced features',
-      priceMonthly: 2999,
-      priceYearly: 29990,
-      maxSessionsPerWeek: -1, // Unlimited
+      description: 'For serious learners and teams',
+      priceMonthly: 1999,
+      priceYearly: 19990,
+      maxSessionsPerWeek: 10,
       canCreatePrivateTeams: true,
       hasPriorityBooking: true,
       hasAdvancedAnalytics: true,
@@ -261,7 +261,7 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error(e);
+    console.error('Error seeding database:', e);
     process.exit(1);
   })
   .finally(async () => {
