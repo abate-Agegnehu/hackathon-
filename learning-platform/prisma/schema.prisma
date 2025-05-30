@@ -1,0 +1,274 @@
+// This is your Prisma schema file
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                Int                @id @default(autoincrement())
+  email             String             @unique
+  password          String
+  name              String
+  bio               String?            @db.Text
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  notifications     Notification[]
+  messagesSent      Message[]          @relation("SentMessages")
+  subscriptions     UserSubscription[]
+  sessionParticipants SessionParticipant[]
+  activityLogs      UserActivityLog[]
+  userChallenges    UserChallenge[]
+  teamMembers       TeamMember[]
+  createdSessions   Session[]          @relation("CreatedSessions")
+  badges            UserBadge[]
+  skills            UserSkill[]
+  meetingRequests   MeetingRequest[]
+
+  @@map("users")
+}
+
+model Challenge {
+  id           Int      @id @default(autoincrement())
+  title        String   @db.VarChar(255)
+  description  String   @db.Text
+  goalTarget   Int      @default(1)
+  rewardPoints Int      @default(100)
+  isActive     Boolean  @default(true)
+  userChallenges UserChallenge[]
+  teamChallenges TeamChallenge[]
+
+  @@map("challenges")
+}
+
+model UserChallenge {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  challengeId Int
+  progress    Int       @default(0)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeId])
+  @@map("user_challenges")
+}
+
+model Team {
+  id          String       @id @default(cuid())
+  name        String      @db.VarChar(255)
+  description String      @db.Text
+  status      String      @default("ACTIVE")
+  maxMembers  Int         @default(5)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  members     TeamMember[]
+  challenges  TeamChallenge[]
+  messages    Message[]   @relation("TeamMessages")
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    Int
+  role      String   @default("MEMBER")
+  joinedAt  DateTime @default(now())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@map("team_members")
+}
+
+model TeamChallenge {
+  id          String    @id @default(cuid())
+  teamId      String
+  challengeId Int
+  status      String    @default("ACTIVE")
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  team        Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, challengeId])
+  @@map("team_challenges")
+}
+
+model Session {
+  id                Int                @id @default(autoincrement())
+  title             String             @db.VarChar(255)
+  description       String             @db.Text
+  startTime         DateTime
+  endTime           DateTime
+  duration          Int                @default(60) // Duration in minutes
+  maxParticipants   Int                @default(10)
+  status            String             @default("SCHEDULED")
+  difficulty        String             @default("INTERMEDIATE")
+  createdById       Int
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  meetLink          String?            @db.Text
+  googleEventId     String?            @db.VarChar(255)
+  participants      SessionParticipant[]
+  createdBy         User               @relation("CreatedSessions", fields: [createdById], references: [id], onDelete: Cascade)
+  meetingRequests   MeetingRequest[]
+
+  @@map("sessions")
+}
+
+model SessionParticipant {
+  id              Int      @id @default(autoincrement())
+  sessionId       Int
+  userId          Int
+  status          String   @default("JOINED")
+  role            String   @default("MEMBER")
+  joinedAt        DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  session         Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId], name: "userId_sessionId")
+  @@map("session_participants")
+}
+
+model Message {
+  id            Int      @id @default(autoincrement())
+  senderId      Int
+  content       String   @db.Text
+  teamId        String?
+  sentAt        DateTime @default(now())
+  isRead        Boolean  @default(false)
+  sender        User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  team          Team?    @relation("TeamMessages", fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Notification {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  title             String
+  message           String   @db.Text
+  notificationType  String
+  relatedEntityType String?
+  relatedEntityId   Int?
+  isRead            Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model UserSubscription {
+  id                  Int              @id @default(autoincrement())
+  userId              Int
+  planId              Int
+  paymentMethod       String?
+  billingCycle        String
+  startDate           DateTime
+  endDate             DateTime?
+  isActive            Boolean          @default(true)
+  stripeSubscriptionId String?
+  lastPaymentDate     DateTime?
+  nextPaymentDate     DateTime?
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@map("user_subscriptions")
+}
+
+model SubscriptionPlan {
+  id                    Int                @id @default(autoincrement())
+  name                  String             @unique
+  description           String?            @db.Text
+  priceMonthly          Decimal
+  priceYearly           Decimal
+  maxSessionsPerWeek    Int
+  canCreatePrivateTeams Boolean            @default(false)
+  hasPriorityBooking    Boolean            @default(false)
+  hasAdvancedAnalytics  Boolean            @default(false)
+  userSubscriptions     UserSubscription[]
+
+  @@map("subscription_plans")
+}
+
+model UserActivityLog {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  activityType  String
+  entityType    String?
+  entityId      Int?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_activity_logs")
+}
+
+model Badge {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String      @db.Text
+  imageUrl    String?
+  createdAt   DateTime    @default(now())
+  userBadges  UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  badgeId   Int
+  earnedAt  DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model Skill {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String      @db.Text
+  createdAt   DateTime    @default(now())
+  userSkills  UserSkill[]
+
+  @@map("skills")
+}
+
+model UserSkill {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  skillId   Int
+  level     Int      @default(1)
+  progress  Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill     Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@map("user_skills")
+}
+
+model MeetingRequest {
+  id        Int      @id @default(autoincrement())
+  sessionId Int
+  userId    Int
+  status    String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId])
+  @@map("meeting_requests")
+} 
